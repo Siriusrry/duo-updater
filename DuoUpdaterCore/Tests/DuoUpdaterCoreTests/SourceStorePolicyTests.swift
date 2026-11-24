@@ -67,7 +67,7 @@ struct SourceStorePolicyTests {
             "an electron-builder feed is the vendor's own distribution, not the store's"),
         "SetappCatalogSource": (false,
             "answers only the editions Setapp ships, from Setapp's catalogue — a store copy is "
-            + "the store's, and this source's own action hands the app to Setapp"),
+            + "the store's, and replacing it with a Setapp archive would cross distributions"),
         "MyGoUpdateSource": (false,
             "a MyGo feed linked into the binary is the vendor's own distribution: its archive "
             + "would replace a store copy, receipt and sandbox entitlements included"),

@@ -11,11 +11,6 @@ struct GeneralSettingsPage: View {
     /// rate-limit caution — a developer with `gh` authenticated never sees it.
     @State private var hasGitHubToken: Bool?
 
-    /// Setapp's client is also an installer: launched in the background it runs
-    /// its check, and installs what it finds when its own "Install automatically"
-    /// is on. This is the user's permission for that, not Setapp's.
-    @AppStorage(SetappAutomation.backgroundUpdatesPreference) private var setappBackgroundUpdates = true
-
     /// Settings marked "new" when this page was opened. See `SettingsSpotlights`.
     @State private var spotlit: Set<String> = []
 
@@ -161,18 +156,6 @@ struct GeneralSettingsPage: View {
                 }
                 .settingsRow()
                 .settingsAnchor(.selfUpdatingApps)
-            }
-
-            // Beside "Self-updating apps" because it is the same question for one
-            // more installer: Setapp's client installs its own apps. It used to sit
-            // under Updates, which is about DuoUpdater's own version.
-            SettingsCard {
-                SettingsToggle(
-                    "Update Setapp apps in the background",
-                    detail: "Starts Setapp when a check finds updates for its apps, so it installs them. A Setapp window may appear behind other apps.",
-                    info: "Only when Setapp’s own automatic installation is on. DuoUpdater quits a Setapp it started after 30 seconds idle, and only when it can confirm the updates have finished and you have not used Setapp; otherwise Setapp keeps running.",
-                    isOn: $setappBackgroundUpdates)
-                    .settingsAnchor(.setappBackgroundUpdates)
             }
 
             // Also a routing question: which source answers for a brew-installed

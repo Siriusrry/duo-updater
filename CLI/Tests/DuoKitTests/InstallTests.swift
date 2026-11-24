@@ -384,6 +384,27 @@ import DuoUpdaterCore
             return
         }
     }
+
+    @Test func aSetappArchiveInstallsWithoutDeferringWhileRunning() {
+        let running = environment(running: true)
+        let decision = Install.classify(
+            result(source: "Setapp"),
+            settings: settings(vendorPolicy: .deferWhenRunning), environment: running)
+        guard case .install(let route) = decision else {
+            Issue.record("expected Setapp archive to install while running, got \(decision)")
+            return
+        }
+        #expect(route == .vendor)
+
+        let heldOrMissing = Install.classify(
+            result(source: "Setapp", vendorKind: nil),
+            settings: settings(), environment: environment())
+        guard case .refuse(let why, _) = heldOrMissing else {
+            Issue.record("expected refusal without archive, got \(heldOrMissing)")
+            return
+        }
+        #expect(why.contains("no installable artefact"))
+    }
 }
 
 /// #404: the CLI used to hand the PLAN's stale `UpdateResult` straight to

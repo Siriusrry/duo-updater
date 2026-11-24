@@ -198,7 +198,7 @@ public actor InstallCoordinator {
         if requiresInstaller { return .installer }
         switch result.remote?.sourceName {
         case "Homebrew":                    return .homebrew
-        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName: return .vendor
+        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName, "Setapp": return .vendor
         case "App Store":                   return .appStore
         case XcodeReleasesSource.sourceName: return .xcode
         default:                            return .sparkle

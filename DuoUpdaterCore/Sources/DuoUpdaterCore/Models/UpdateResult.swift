@@ -1060,6 +1060,8 @@ public struct UpdateResult: Sendable, Identifiable, Equatable {
     ///    already one-click install (Postman, Chrome, VLC, …).
     ///  - "GitHub": open-source release feeds.
     ///  - "App Store": the store enforces entitlements itself; we never warn.
+    ///  - "Setapp": an active Setapp subscription covers major upgrades across its
+    ///    catalogue, and lapsed subscriptions are withheld through `SubscriptionHold`.
     /// Deliberately excludes "Homebrew" (some casks wrap paid apps) and a Sparkle
     /// feed that merely set no `minimumAutoupdateVersion` (a paid app may simply
     /// omit it), both of which keep the warning — the conservative direction.
@@ -1072,7 +1074,7 @@ public struct UpdateResult: Sendable, Identifiable, Equatable {
     /// as Homebrew, not an oversight. `UpdatePolicy.canAutoInstall`'s
     /// `"Vendor", "GitHub", "Electron"` case (Engine/UpdatePolicy.swift) points
     /// back here rather than repeating this.
-    private static let licenseNeutralSources: Set<String> = ["Vendor", "GitHub", "App Store"]
+    private static let licenseNeutralSources: Set<String> = ["Vendor", "GitHub", "App Store", "Setapp"]
 
     /// True when this copy is the old app of a vendor rewrite
     /// (`BundleIDMigration.isRewrite`), so the update offered replaces it with the

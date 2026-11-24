@@ -263,65 +263,10 @@ func openDetectionOnly(_ affordance: DetectionOnlyAffordance, app: URL) {
         // LaunchServices, not `withApplicationAt`: the scheme is registered by
         // the other app's agent, and handing the URL to the client by path only
         // activates it (measured on Setapp, 2026-11-03).
-        //
-        // Setapp is the one scheme where a background launch is worth more than
-        // the page: the client's launch check installs what it finds when its own
-        // "Install automatically" is on (measured, same day). If either switch
-        // says no, open the page instead.
-        if url.scheme == "setapp", setappBackgroundUpdateWillRun(),
-           let client = SetappAutomation.clientURL() {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = false
-            NSWorkspace.shared.openApplication(at: client, configuration: configuration)
-        } else {
-            NSWorkspace.shared.open(url)
-        }
+        NSWorkspace.shared.open(url)
     case .revealInFinder:
         NSWorkspace.shared.activateFileViewerSelecting([app])
     }
-}
-
-/// Whether a Setapp deep link will be run as a background update or just opened.
-/// Both switches must agree: the user's preference in Settings, and Setapp's own
-/// "Install automatically". When either says no, opening the page is the honest
-/// offer — and the button says so.
-func setappBackgroundUpdateEnabled() -> Bool {
-    let enabled = (UserDefaults.standard.object(
-        forKey: SetappAutomation.backgroundUpdatesPreference) as? Bool) ?? true
-    return enabled && SetappAutomation.canUpdateInBackground(userEnabled: true)
-}
-
-/// Whether the client is running. A background LAUNCH is what runs the check
-/// that installs; handed an already-running client, `openApplication` merely
-/// activates it (or does nothing with activation off) — and the deep link is
-/// discarded on that path. So a running client takes the page route instead.
-func setappClientIsRunning() -> Bool {
-    !NSRunningApplication.runningApplications(
-        withBundleIdentifier: SetappAutomation.clientBundleIdentifier).isEmpty
-}
-
-/// Shared eligibility for the automatic trigger and the row action. The button
-/// is always titled "Setapp"; its tooltip describes the action that will run.
-func setappBackgroundUpdateWillRun() -> Bool {
-    let enabled = (UserDefaults.standard.object(
-        forKey: SetappAutomation.backgroundUpdatesPreference) as? Bool) ?? true
-    return SetappAutomation.routesThroughBackground(
-        userEnabled: enabled, clientRunning: setappClientIsRunning())
-}
-
-/// Once per completed check, after Setapp's catalogue has established an
-/// actionable offer. Launching the client runs its own check and installer;
-/// opening an already-running client does not request another check.
-@MainActor
-func startSetappBackgroundUpdatesIfNeeded(for results: [UpdateResult]) async {
-    guard SetappAutomation.hasAvailableUpdate(in: results),
-          setappBackgroundUpdateWillRun(),
-          let client = SetappAutomation.clientURL() else { return }
-    var targets: [URL: VersionSide] = [:]
-    for result in SetappAutomation.availableUpdates(in: results) {
-        if let version = result.remote?.versionSide { targets[result.app.path] = version }
-    }
-    SetappBackgroundUpdates.shared.start(client: client, targets: targets)
 }
 
 /// A detection-only button's tooltip, shared by both windows.
@@ -329,10 +274,7 @@ func detectionOnlyHelp(_ affordance: DetectionOnlyAffordance, appName: String) -
     switch affordance {
     case .openPage: return String(localized: "Open the official download page")
     case .openInApp: return String(localized: "Open \(appName)’s built-in updater (it updates itself)")
-    case .openDeepLink:
-        return setappBackgroundUpdateWillRun()
-            ? String(localized: "Starts Setapp in the background; it installs its own updates, which may update every outdated Setapp app.")
-            : String(localized: "Open this app in Setapp")
+    case .openDeepLink: return String(localized: "Open this app in Setapp")
     case .revealInFinder: return String(localized: "Reveal in Finder")
     }
 }
@@ -1169,10 +1111,7 @@ struct WorkbenchRowAction: View {
         switch affordance {
         case .openPage: return String(localized: "Open page")
         case .openInApp: return String(localized: "Open")
-        case .openDeepLink:
-            return setappBackgroundUpdateWillRun()
-                ? String(localized: "Update via Setapp")
-                : String(localized: "Open in Setapp")
+        case .openDeepLink: return String(localized: "Open in Setapp")
         case .revealInFinder: return DetectionOnlyAffordance.revealInFinderTitle
         }
     }

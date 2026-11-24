@@ -89,4 +89,17 @@ struct UpdateSourceLabelTests {
         #expect(installs?.detail.contains("replaces the app") == true)
         #expect(installs?.detail.contains("record") == true)
     }
+
+    @Test func setappLabelDescribesDirectCatalogueReplacement() {
+        let idle = UpdateSourceLabel(
+            row(source: "Setapp", status: .upToDate, brewToken: nil), action: .none)
+        #expect(idle?.phrase == "via Setapp")
+        #expect(idle?.sidebarName == nil)
+        #expect(idle?.detail == "Updates come from Setapp’s catalogue.")
+
+        let active = UpdateSourceLabel(
+            row(source: "Setapp", status: .updateAvailable(latest: "1.3.0"), brewToken: nil), action: .install)
+        #expect(active?.sidebarName == nil)
+        #expect(active?.detail == "Updates come from Setapp’s catalogue. Update downloads the new version, verifies it and replaces the app.")
+    }
 }

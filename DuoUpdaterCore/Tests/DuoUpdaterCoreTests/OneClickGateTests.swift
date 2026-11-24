@@ -411,7 +411,7 @@ struct OneClickGateTests {
     /// vendor sources: every kind). Routed by `InstallCoordinator.route`, a
     /// `.pkg` as `requiresInstaller`.
     @Test func everyOfferAScopedGateNamesHasAPackageCheck() {
-        let vendorSources = ["GitHub", "Vendor", ElectronManifestSource.sourceName, MyGoUpdateSource.sourceName]
+        let vendorSources = ["GitHub", "Vendor", ElectronManifestSource.sourceName, MyGoUpdateSource.sourceName, "Setapp"]
         let sources = vendorSources + ["Homebrew", "App Store", XcodeReleasesSource.sourceName, "Sparkle", "Unknown"]
         let exceptions = Self.offeringsWithoutAPackageCheck.union(
             ["Homebrew:alfred", "Homebrew:alfred@prerelease"])

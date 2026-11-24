@@ -380,6 +380,7 @@ struct TrafficLedgerPane: View {
         case "Vendor":  return .teal
         case "GitHub":  return .purple
         case "Sparkle": return .orange
+        case "Setapp":  return .pink
         case "pkg":     return .indigo
         default:        return .secondary
         }

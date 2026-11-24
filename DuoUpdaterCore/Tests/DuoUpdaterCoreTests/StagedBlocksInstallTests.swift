@@ -79,7 +79,7 @@ struct StagedBlocksInstallTests {
     /// Mutations: return `armed` alone (Homebrew line goes red); return
     /// `routeCollidesWithSelfUpdater` alone (the not-armed line goes red).
     @Test func anArmedInstallerBlocksOnlyRoutesWeSwapOurselves() {
-        for source in ["Vendor", "GitHub", "Sparkle", "Electron"] {
+        for source in ["Vendor", "GitHub", "Sparkle", "Electron", "Setapp"] {
             #expect(UpdatePolicy.armedInstallerBlocksInstall(result(source: source), armed: true),
                     "\(source) should be blocked")
             #expect(!UpdatePolicy.armedInstallerBlocksInstall(result(source: source), armed: false),

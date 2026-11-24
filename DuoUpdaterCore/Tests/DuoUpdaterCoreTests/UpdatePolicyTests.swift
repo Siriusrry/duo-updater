@@ -263,6 +263,18 @@ private func storeAvailability(
             settings: defaultSettings(), environment: environment(),
             expected: false
         ),
+        (
+            name: "setapp release with a resolved archive is auto-installable",
+            result: fixtureResult(source: "Setapp", vendorInstallerKind: .zip),
+            settings: defaultSettings(), environment: environment(),
+            expected: true
+        ),
+        (
+            name: "setapp release with no archive (held or detection-only) is not auto-installable",
+            result: fixtureResult(source: "Setapp", vendorInstallerKind: nil),
+            settings: defaultSettings(), environment: environment(),
+            expected: false
+        ),
         // App Store: needs availability info, and the route gate (full → helper).
         (
             name: "app store with full strategy and helper approved is auto-installable",
@@ -651,6 +663,13 @@ private func storeAvailability(
             expected: false
         ),
         (
+            name: "running setapp app never defers to a self-updater",
+            result: fixtureResult(source: "Setapp", vendorInstallerKind: .zip),
+            settings: defaultSettings(policy: .deferWhenRunning),
+            environment: environment(running: [fixturePath]),
+            expected: false
+        ),
+        (
             name: "staged latest wins over deferral (Relaunch owns it)",
             result: fixtureResult(source: "Vendor", vendorInstallerKind: .zip),
             settings: defaultSettings(policy: .deferWhenRunning),
@@ -716,10 +735,6 @@ private func storeAvailability(
         "Toolbox": "Toolbox manages the app itself",
         // Apple's TestFlight app owns the install.
         "TestFlight": "TestFlight manages the app itself",
-        // Setapp's agent owns the install: it swaps the bundle with its own
-        // progress and cancel, against the account's entitlement. The source
-        // only names the catalogue version and the app's page.
-        "Setapp": "Setapp manages the install itself",
     ]
 
     let stackNames = Set(SourceStack.make(githubToken: nil).map(\.name))
@@ -740,6 +755,20 @@ private func storeAvailability(
     // actually produce, and nil is never mistaken for a real source.
     #expect(!UpdatePolicy.isRecognizedInstallSource(nil))
     #expect(!UpdatePolicy.isRecognizedInstallSource("SomeFutureSource"))
+}
+
+@Test func setappMajorVersionBumpsStayLicenseNeutralAndJoinUpdateAll() {
+    let major = UpdateResult(
+        app: fixtureApp(),
+        remote: RemoteVersion(
+            shortVersion: "2.0.0", version: nil,
+            marketingMatchesBundle: true,
+            downloadURL: URL(string: "https://store.setapp.com/fixture-2.0.zip"),
+            sourceName: "Setapp", vendorInstallerKind: .zip),
+        status: .updateAvailable(latest: "2.0.0"))
+    #expect(!major.isMajorUpgrade)
+    #expect(InstallCoordinator.route(for: major, requiresInstaller: false) == .vendor)
+    #expect(UpdatePolicy.joinsUpdateAll(major, environment: environment(), appleSignIn: nil))
 }
 
 // MARK: - isRunning
@@ -1388,6 +1417,7 @@ struct LaggingRemoteVersionTests {
         // stays closed even with a well-formed zip archive — the safe default,
         // not an oversight.
         ("an electron zip", fixtureResult(source: "Electron", vendorInstallerKind: .zip, app: app)),
+        ("a setapp zip", fixtureResult(source: "Setapp", vendorInstallerKind: .zip, app: app)),
     ]
     for (what, result) in refused {
         #expect(!UpdatePolicy.canAutoInstall(

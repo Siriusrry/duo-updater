@@ -15,10 +15,15 @@ struct AutomaticUpdateChoicesTests {
         #expect(AutomaticUpdateChoices.canConfigure(remote: remote, installable: false))
         // Saving a policy does not manufacture an installable offer.
         #expect(remote.downloadURL == nil)
+
+        let setappHeld = RemoteVersion(shortVersion: "1.2.0", version: "120", downloadURL: nil,
+            sourceName: "Setapp",
+            subscriptionHold: SubscriptionHold(version: "1.3.0", coveredBefore: nil, recovery: .setappAccount))
+        #expect(AutomaticUpdateChoices.canConfigure(remote: setappHeld, installable: false))
     }
 
     @Test func manualRoutesAndOtherRefusalsStayOutsidePolicyColumns() {
-        for source in ["Homebrew", "App Store", "Sparkle", "Vendor"] {
+        for source in ["Homebrew", "App Store", "Sparkle", "Vendor", "Setapp"] {
             let remote = RemoteVersion(shortVersion: nil, version: "1", downloadURL: nil, sourceName: source)
             #expect(!AutomaticUpdateChoices.canConfigure(remote: remote, installable: false))
         }

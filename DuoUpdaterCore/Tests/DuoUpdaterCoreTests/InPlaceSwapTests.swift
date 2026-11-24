@@ -63,6 +63,65 @@ import Testing
         #expect(try mode(of: target.appendingPathComponent("Contents/Resources")) == 0o775)
     }
 
+    @Test func replacePreservesSetappInstallMarkerOnlyWhenPresent() async throws {
+        let fm = FileManager.default
+        let parent = try scratch()
+        defer { try? fm.removeItem(at: parent) }
+
+        let target = try bundle(
+            at: parent.appendingPathComponent("Marked.app"), mode: 0o755, marker: "old")
+        let incoming = try bundle(
+            at: parent.appendingPathComponent("Incoming.app"), mode: 0o755, marker: "new")
+        let marker = Data("installedBySetapp".utf8)
+        marker.withUnsafeBytes { buf in
+            #expect(setxattr(
+                target.path, InPlaceSwap.setappInstalledXattr,
+                buf.baseAddress, marker.count, 0, XATTR_NOFOLLOW) == 0)
+        }
+
+        let outcome = try await InPlaceSwap.replace(newApp: incoming, over: target)
+        #expect(outcome == .replaced)
+        #expect(readXattr(InPlaceSwap.setappInstalledXattr, at: target) == marker)
+
+        // Plain non-Setapp bundles acquire no marker from the swap.
+        let plainTarget = try bundle(
+            at: parent.appendingPathComponent("Plain.app"), mode: 0o755, marker: "old")
+        let plainIncoming = try bundle(
+            at: parent.appendingPathComponent("PlainIncoming.app"), mode: 0o755, marker: "new")
+        #expect(try await InPlaceSwap.replace(newApp: plainIncoming, over: plainTarget) == .replaced)
+        #expect(readXattr(InPlaceSwap.setappInstalledXattr, at: plainTarget) == nil)
+    }
+
+    @Test func privilegedSwapCarriesPreservedSetappMarkerThroughDitto() async throws {
+        let fm = FileManager.default
+        let parent = try scratch()
+        defer { try? fm.removeItem(at: parent) }
+        let target = try bundle(
+            at: parent.appendingPathComponent("Fixture.app"), mode: 0o755, marker: "old")
+        let incoming = try bundle(
+            at: parent.appendingPathComponent("Incoming.app"), mode: 0o755, marker: "new")
+        let marker = Data("installedBySetapp".utf8)
+        marker.withUnsafeBytes { buf in
+            #expect(setxattr(
+                target.path, InPlaceSwap.setappInstalledXattr,
+                buf.baseAddress, marker.count, 0, XATTR_NOFOLLOW) == 0)
+        }
+        InPlaceSwap.preserveSetappMarker(from: target, onto: incoming)
+        #expect(try await run(InPlaceSwap.privilegedReplacementShell(
+            newApp: incoming, target: target)) == 0)
+        #expect(readXattr(InPlaceSwap.setappInstalledXattr, at: target) == marker)
+    }
+
+    private func readXattr(_ name: String, at url: URL) -> Data? {
+        let size = getxattr(url.path, name, nil, 0, 0, XATTR_NOFOLLOW)
+        guard size >= 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: size)
+        let read = bytes.withUnsafeMutableBytes { buf in
+            getxattr(url.path, name, buf.baseAddress, size, 0, XATTR_NOFOLLOW)
+        }
+        return read == size ? Data(bytes) : nil
+    }
+
     // MARK: - Helpers
 
     private func scratch() throws -> URL {

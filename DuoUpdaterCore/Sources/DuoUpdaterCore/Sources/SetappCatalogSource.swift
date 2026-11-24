@@ -16,14 +16,17 @@ import Foundation
 /// list — is the point: the vendor's feed must never be the fallback for an app
 /// whose channel is Setapp.
 ///
-/// **What it deliberately does not do is install.** Setapp owns that flow: its
-/// agent downloads and swaps the bundle, shows its own progress and cancel, and
-/// asks for the account's entitlement. Measured 2026-11-03: `setapp://install/<uid>`
-/// is rejected by the agent ("URL is not a valid install-from-URL link"); the
-/// valid uuid form (`setapp://install?app_id=<public_id>`) opens the app's page and,
-/// for an installed copy, only offers to open it. So the row offers the page, and
-/// the MCP `install_app` tool that could trigger an install is behind a GrowthBook
-/// flag (`PLATECO-12287`, false in production) we cannot rely on.
+/// **How it installs.** Every version entry in Setapp's catalogue publishes an
+/// HTTPS `archive_url` (`.zip`) and `size` carrying the Developer ID-signed
+/// `-setapp` bundle (either at the archive root or under `setappRelease/<App>.app`,
+/// both unpacked by `ArchiveExtractor`). While `SetappSubscription` confirms an
+/// active subscription, the offer populates `downloadURL` and `vendorInstallerKind`
+/// so `VendorInstaller` verifies the Developer ID signature, Team ID and bundle ID
+/// and swaps the bundle in place without opening Setapp's window (and without
+/// `SetappAgent` skipping running apps). When the subscription has lapsed, the
+/// macOS floor refuses the release, or no archive is published, `downloadURL` stays
+/// nil and `pageURL` (`setapp://install?app_id=<public_id>`) preserves the Setapp
+/// page fallback.
 public struct SetappCatalogSource: UpdateSource {
 
     public var name: String { "Setapp" }
@@ -191,7 +194,7 @@ public struct SetappCatalogSource: UpdateSource {
                     recovery: .setappAccount))
         }
 
-        return offer(release, version: version, app: app)
+        return offer(release, version: version, app: app, installable: true)
     }
 
     /// `marketingMatchesBundle` is stated because the catalogue's
@@ -199,16 +202,25 @@ public struct SetappCatalogSource: UpdateSource {
     /// (measured on AlDente Pro 1.40.1: both 1.40.1), which is what lets the
     /// checker refuse a build that would walk the marketing number backwards.
     private func offer(
-        _ release: SetappRelease, version: SetappVersion, app: InstalledApp
+        _ release: SetappRelease, version: SetappVersion, app: InstalledApp,
+        installable: Bool = false
     ) -> RemoteVersion {
-        Self.offer(release, version: version, app: app, name: name)
+        Self.offer(release, version: version, app: app, name: name, installable: installable)
+    }
+
+    static func installerKind(for url: URL) -> VendorInstallerKind? {
+        guard (try? SecureScheme.requireSecureDownload(url)) != nil,
+              let kind = ArtifactInspection.installerKind(for: url),
+              kind != .pkg else { return nil }
+        return kind
     }
 
     static func offer(
         _ release: SetappRelease, version: SetappVersion, app: InstalledApp,
-        name: String = "Setapp"
+        name: String = "Setapp", installable: Bool = false
     ) -> RemoteVersion {
-        RemoteVersion(
+        let kind = installable ? version.archiveURL.flatMap(Self.installerKind(for:)) : nil
+        return RemoteVersion(
             shortVersion: version.shortVersion,
             // The build is stated only when the marketing versions tie. Setapp
             // numbers builds per branch (4.1 is 410 beside 3.14.8's 3148), so a
@@ -217,10 +229,12 @@ public struct SetappCatalogSource: UpdateSource {
             // only thing that can say "this release moved".
             version: remoteBuild(version, than: app),
             marketingMatchesBundle: true,
-            downloadURL: nil,
+            downloadURL: kind != nil ? version.archiveURL : nil,
             pageURL: Self.deepLink(for: release) ?? release.pageURL,
+            downloadSize: kind != nil ? version.size : nil,
             minimumSystemVersion: version.minimumSystemVersion,
             sourceName: name,
+            vendorInstallerKind: kind,
             releaseChannel: version.isBeta ? .beta : nil)
     }
 

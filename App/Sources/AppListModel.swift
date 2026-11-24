@@ -3991,15 +3991,6 @@ final class AppListModel {
         let checked = checkedRows + ScanRowAssembly.unchecked(ignored, proofs: provenNow)
         results = sorted(CheckRoundWriteBack.publishing(
             checked, changedSince: roundBaseline, live: results))
-        let automaticSetappUpdates = SetappAutomation.automaticUpdateCandidates(
-            in: results,
-            ignoredApps: ignored,
-            hasStoredSkip: prefs.hasSkippedVersion,
-            isVersionSkipped: { result in
-                prefs.isVersionSkipped(result.app, version: result.remote?.versionSide)
-            })
-        await startSetappBackgroundUpdatesIfNeeded(
-            for: automaticSetappUpdates.filter(isActionableUpdate))
         // Pre-warm the disk changelog cache for anything pending, so opening its
         // notes is instant (and a no-op network-wise for versions already cached).
         prewarmChangelogs(for: checked)
@@ -9816,7 +9807,7 @@ final class AppListModel {
         guard !requiresInstaller(result) else { return false }
         guard appManagementStatus == .granted else { return false }
         switch result.remote?.sourceName {
-        case "Sparkle", "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName:
+        case "Sparkle", "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName, "Setapp":
             return true
         default:
             return false
@@ -10847,10 +10838,6 @@ final class AppListModel {
             return String(localized: "Xcode downloads use your Apple Developer account and require a manual update action.")
         }
         switch result.remote?.sourceName {
-        case "Setapp":
-            return setappBackgroundUpdateEnabled()
-                ? String(localized: "Updated by Setapp in the background, not here")
-                : String(localized: "Updated through Setapp, so not automatically")
         case "Toolbox":
             return String(localized: "Managed by JetBrains Toolbox — open Toolbox to update \(result.app.name)")
         case "TestFlight":
@@ -10883,6 +10870,10 @@ final class AppListModel {
         if result.remote?.sourceName == "Sparkle", result.app.sparkleEdPublicKey?.isEmpty == false,
            result.remote?.edSignature == nil, result.remote?.downloadURL != nil {
             return String(localized: "The update feed gave no signature for this download, but the vendor signs this app’s updates. Refusing to install it unverified.")
+        }
+        if result.remote?.sourceName == "Setapp",
+           SetappSubscription.current()?.isActive(now: Date()) != true {
+            return String(localized: "Setapp subscription isn’t active")
         }
         return String(localized: "No supported installer is available for this update. Use the app’s updater or its official download page.")
     }

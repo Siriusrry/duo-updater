@@ -18,7 +18,7 @@ struct SetappCatalogSourceTests {
         {"attributes":{"bundle_id":"com.example.thing-setapp","name":"Thing","public_id":"AAAA-1111","slugs":[{"slug":"thing","primary":true}]},
          "relationships":{"versions":{"data":[
            {"attributes":{"marketing_version":"1.2.0","build_number":"120","release_date":1700000000,"min_os_version":"12.0"}},
-           {"attributes":{"marketing_version":"1.3.0","build_number":"130","release_date":1700100000,"min_os_version":"13.0"}}
+           {"attributes":{"marketing_version":"1.3.0","build_number":"130","release_date":1700100000,"min_os_version":"13.0","archive_url":"https://store.setapp.com/store/api/v8/archive/thing-1.3.0.zip","size":14487684}}
          ]}}},
         {"attributes":{"bundle_id":"com.example.direct","name":"Direct","public_id":"BBBB-2222","slugs":[{"slug":"direct","primary":true}]},
          "relationships":{"versions":{"data":[
@@ -63,8 +63,34 @@ struct SetappCatalogSourceTests {
         #expect(thing.minimumSystemVersion == "13.0")
         #expect(thing.publicID == "AAAA-1111")
         #expect(thing.pageURL == URL(string: "https://setapp.com/apps/thing"))
+        #expect(thing.newest?.archiveURL == URL(string: "https://store.setapp.com/store/api/v8/archive/thing-1.3.0.zip"))
+        #expect(thing.newest?.size == 14_487_684)
+        #expect(thing.versions.last?.archiveURL == nil)
+        #expect(thing.versions.last?.size == nil)
         #expect(releases["com.example.direct"]?.shortVersion == "9.9.9")
         #expect(thing.versions.count == 2)
+    }
+
+    @Test func rejectsInsecureArchiveURLsAndNonPositiveSizes() throws {
+        let json = """
+        {"data":{"relationships":{"vendors":{"data":[
+          {"relationships":{"applications":{"data":[
+            {"attributes":{"bundle_id":"com.example.thing-setapp","name":"Thing","public_id":"AAAA","slugs":[]},
+             "relationships":{"versions":{"data":[
+               {"attributes":{"marketing_version":"1.3.0","build_number":"130","release_date":1700300000,"archive_url":"http://store.setapp.com/thing.zip","size":0}},
+               {"attributes":{"marketing_version":"1.2.0","build_number":"120","release_date":1700200000,"archive_url":"https://store.setapp.com/thing.zip","size":-5}},
+               {"attributes":{"marketing_version":"1.1.0","build_number":"110","release_date":1700100000,"archive_url":"https://store.setapp.com/thing-1.1.zip","size":42}}
+             ]}}}
+          ]}}}
+        ]}}}}
+        """
+        let release = try #require(try SetappCatalog.parse(Data(json.utf8))["com.example.thing-setapp"])
+        #expect(release.versions[0].archiveURL == nil)
+        #expect(release.versions[0].size == nil)
+        #expect(release.versions[1].archiveURL == URL(string: "https://store.setapp.com/thing.zip"))
+        #expect(release.versions[1].size == nil)
+        #expect(release.versions[2].archiveURL == URL(string: "https://store.setapp.com/thing-1.1.zip"))
+        #expect(release.versions[2].size == 42)
     }
 
     @Test func picksTheNewestReleaseThisMacCanRun() throws {
@@ -560,7 +586,7 @@ struct SetappCatalogSourceTests {
           {"relationships":{"applications":{"data":[
             {"attributes":{"bundle_id":"com.example.permute-setapp","name":"Permute","public_id":"CCCC-3333","slugs":[]},
              "relationships":{"versions":{"data":[
-               {"attributes":{"marketing_version":"4.1","build_number":"410","release_date":1700200000,"min_os_version":"26.0"}}
+               {"attributes":{"marketing_version":"4.1","build_number":"410","release_date":1700200000,"min_os_version":"26.0","archive_url":"https://store.setapp.com/permute-4.1.zip","size":100}}
              ]}}}
           ]}}}
         ]}}}}
@@ -578,8 +604,12 @@ struct SetappCatalogSourceTests {
             shortVersion: "3.14.7", buildVersion: "3147",
             path: URL(fileURLWithPath: "/Applications/Setapp/Permute.app"),
             isMASApp: false, sparkleFeedURL: nil)
-        await #expect(throws: OSWindowRefused.self) {
+        do {
             _ = try await source.latestVersion(for: installed)
+            Issue.record("expected OSWindowRefused")
+        } catch let refused as OSWindowRefused {
+            #expect(refused.release.downloadURL == nil)
+            #expect(refused.release.vendorInstallerKind == nil)
         }
 
         // The checker reports it as a refused macOS floor, not a checkmark.
@@ -644,7 +674,9 @@ struct SetappCatalogSourceTests {
         // No build is stated: Setapp numbers builds per branch, and the checker
         // prefers builds when both sides have one (see `offer`).
         #expect(answer.version == nil)
-        #expect(answer.downloadURL == nil)
+        #expect(answer.downloadURL == URL(string: "https://store.setapp.com/store/api/v8/archive/thing-1.3.0.zip"))
+        #expect(answer.downloadSize == 14_487_684)
+        #expect(answer.vendorInstallerKind == .zip)
         #expect(answer.pageURL == URL(string: "setapp://install?app_id=AAAA-1111"))
         #expect(answer.sourceName == "Setapp")
         #expect(answer.subscriptionHold == nil)
@@ -659,10 +691,20 @@ struct SetappCatalogSourceTests {
             now: { Date(timeIntervalSince1970: 1_804_000_000) })  // 2027-03-01, past the grace too
 
         let answer = try #require(try await source.latestVersion(for: app()))
-        // An answer, not nil: the row keeps its identity and shows the hold.
+        // An answer, not nil: the row keeps its identity and shows the hold,
+        // without exposing an installable archive.
         #expect(answer.shortVersion == "1.0")
+        #expect(answer.downloadURL == nil)
+        #expect(answer.vendorInstallerKind == nil)
         #expect(answer.subscriptionHold?.version == "1.3.0")
         #expect(answer.subscriptionHold?.coveredBefore == SetappSubscription.parseDate("2027-01-30 23:59:59 +0000"))
+
+        // An already-current copy under a lapsed subscription also carries no
+        // installable archive, so Automatic Updates never mistakes it for active.
+        let current = try #require(try await source.latestVersion(for: app(short: "1.3.0", build: "130")))
+        #expect(current.downloadURL == nil)
+        #expect(current.vendorInstallerKind == nil)
+        #expect(current.subscriptionHold == nil)
     }
 
     @Test func stillAnsweredAsInstalledWhenTheCatalogueDoesNotListIt() async throws {
@@ -694,133 +736,65 @@ struct SetappCatalogSourceTests {
         #expect(DetectionOnlyAffordance.resolve(pageURL: page, setappClient: nil) == .openPage(page))
     }
 
-    // MARK: - Background updates
+    // MARK: - Archive routing
 
-    @Test func onlyActionableSetappOffersTriggerBackgroundUpdates() {
-        let stable = RemoteVersion(
-            shortVersion: "1.2", version: nil, downloadURL: nil, sourceName: "Setapp")
-        let beta = RemoteVersion(
-            shortVersion: "1.3b1", version: nil, downloadURL: nil, sourceName: "Setapp", releaseChannel: .beta)
-        for remote in [stable, beta] {
-            #expect(SetappAutomation.hasAvailableUpdate(in: [UpdateResult(
-                app: app(), remote: remote, status: .updateAvailable(latest: "1.2"))]))
-            #expect(!SetappAutomation.hasAvailableUpdate(in: [UpdateResult(
-                app: app(), remote: remote, status: .upToDate)]))
-            #expect(!SetappAutomation.hasAvailableUpdate(in: [UpdateResult(
-                app: app(), remote: remote, status: .error("offline"))]))
-        }
-        let direct = RemoteVersion(shortVersion: "2", version: nil, downloadURL: nil, sourceName: "Sparkle")
-        #expect(!SetappAutomation.hasAvailableUpdate(in: [UpdateResult(
-            app: app(), remote: direct, status: .updateAvailable(latest: "2"))]))
-        let held = RemoteVersion(
-            shortVersion: "1.2", version: nil, downloadURL: nil, sourceName: "Setapp",
-            subscriptionHold: SubscriptionHold(version: "2", coveredBefore: nil, recovery: .setappAccount))
-        #expect(!SetappAutomation.hasAvailableUpdate(in: [UpdateResult(
-            app: app(), remote: held, status: .upToDate)]))
-        #expect(!SetappAutomation.hasAvailableUpdate(in: []))
+    @Test func installerKindAcceptsOnlySecureInPlaceArchives() {
+        #expect(SetappCatalogSource.installerKind(
+            for: URL(string: "https://store.setapp.com/a.zip")!) == .zip)
+        #expect(SetappCatalogSource.installerKind(
+            for: URL(string: "https://store.setapp.com/a.dmg")!) == .dmg)
+        #expect(SetappCatalogSource.installerKind(
+            for: URL(string: "https://store.setapp.com/a.tgz")!) == .tarGz)
+        // System-installer packages and cleartext non-loopback URLs stay closed.
+        #expect(SetappCatalogSource.installerKind(
+            for: URL(string: "https://store.setapp.com/a.pkg")!) == nil)
+        #expect(SetappCatalogSource.installerKind(
+            for: URL(string: "http://store.setapp.com/a.zip")!) == nil)
     }
 
-    /// A Setapp cold launch refreshes the whole catalogue, so an actionable
-    /// row must not make a second row's explicitly skipped version collateral.
-    @Test func oneSkippedOfferVetoesTheGlobalAutomaticLaunch() {
+    @Test func vendorInstallerDownloadsAndUnpacksSetappReleaseSubfolderArchive() async throws {
+        let fm = FileManager.default
+        let scratch = fm.temporaryDirectory
+            .appendingPathComponent("setapp-zip-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: scratch) }
+
+        // Setapp archives frequently pack the bundle one folder deep under
+        // `setappRelease/<App>.app` (observed on AlDente Pro 1.40.3).
+        let nestedContents = scratch
+            .appendingPathComponent("payload/setappRelease/Thing.app/Contents", isDirectory: true)
+        try fm.createDirectory(at: nestedContents, withIntermediateDirectories: true)
+        try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleIdentifier": "com.example.thing-setapp",
+                "CFBundleShortVersionString": "1.3.0",
+                "CFBundleVersion": "130",
+            ],
+            format: .binary, options: 0
+        ).write(to: nestedContents.appendingPathComponent("Info.plist"))
+
+        let archive = scratch.appendingPathComponent("thing-1.3.0.zip")
+        let zipped = try await ChildProcess.run(
+            "/usr/bin/ditto",
+            ["-c", "-k", scratch.appendingPathComponent("payload").path, archive.path],
+            onCancel: .runToCompletion)
+        #expect(zipped.succeeded)
+
         let remote = RemoteVersion(
-            shortVersion: "1.2", version: nil, downloadURL: nil, sourceName: "Setapp")
-        let actionable = UpdateResult(
-            app: app(id: "com.example.actionable-setapp"), remote: remote,
-            status: .updateAvailable(latest: "1.2"))
-        let skipped = UpdateResult(
-            app: app(id: "com.example.skipped-setapp"), remote: remote,
-            status: .updateAvailable(latest: "1.2"))
+            shortVersion: "1.3.0", version: nil,
+            marketingMatchesBundle: true,
+            downloadURL: archive,
+            sourceName: "Setapp",
+            vendorInstallerKind: .zip)
+        let result = UpdateResult(app: app(), remote: remote, status: .updateAvailable(latest: "1.3.0"))
+        let downloaded = try await VendorInstaller().download(
+            result, preferDelta: false, useLocalStash: false, population: nil, onStage: { _ in })
+        defer { try? fm.removeItem(at: downloaded.workDir) }
 
-        let blocked = SetappAutomation.automaticUpdateCandidates(
-            in: [actionable, skipped],
-            isVersionSkipped: { $0.app.bundleID == "com.example.skipped-setapp" })
-        #expect(blocked.isEmpty)
-        #expect(SetappAutomation.automaticUpdateCandidates(
-            in: [skipped, actionable],
-            isVersionSkipped: { $0.app.bundleID == "com.example.skipped-setapp" }).isEmpty)
-        #expect(SetappAutomation.automaticUpdateCandidates(
-            in: [skipped], isVersionSkipped: { _ in true }).isEmpty)
-        #expect(SetappAutomation.automaticUpdateCandidates(
-            in: [], isVersionSkipped: { _ in false }).isEmpty)
-
-        let allowed = SetappAutomation.automaticUpdateCandidates(
-            in: [actionable, skipped], isVersionSkipped: { _ in false })
-        #expect(allowed.count == 2)
-    }
-
-    @Test func anIgnoredSetappCopyWithAStoredSkipVetoesTheGlobalLaunch() {
-        let remote = RemoteVersion(
-            shortVersion: "1.2", version: nil, downloadURL: nil, sourceName: "Setapp")
-        let actionable = UpdateResult(
-            app: app(id: "com.example.actionable-setapp"), remote: remote,
-            status: .updateAvailable(latest: "1.2"))
-        let ignored = app(id: "com.example.ignored-setapp")
-
-        #expect(SetappAutomation.automaticUpdateCandidates(
-            in: [actionable],
-            ignoredApps: [ignored],
-            hasStoredSkip: { $0.bundleID == "com.example.ignored-setapp" },
-            isVersionSkipped: { _ in false }).isEmpty)
-
-        // A skipped ignored copy from another distribution cannot be collateral
-        // in Setapp's global refresh and must not suppress Setapp updates.
-        let direct = app(id: "com.example.direct")
-        #expect(SetappAutomation.automaticUpdateCandidates(
-            in: [actionable],
-            ignoredApps: [direct],
-            hasStoredSkip: { _ in true },
-            isVersionSkipped: { _ in false }).count == 1)
-    }
-
-    @Test func aSkippedDirectOfferDoesNotVetoSetappUpdates() {
-        let setapp = UpdateResult(app: app(), remote: RemoteVersion(
-            shortVersion: "2.0", version: "200", downloadURL: nil, sourceName: "Setapp"),
-            status: .updateAvailable(latest: "2.0"))
-        let direct = UpdateResult(app: app(id: "com.example.direct"), remote: RemoteVersion(
-            shortVersion: "2.0", version: "200", downloadURL: nil, sourceName: "Sparkle"),
-            status: .updateAvailable(latest: "2.0"))
-        let updates = SetappAutomation.automaticUpdateCandidates(in: [direct, setapp]) {
-            $0.remote?.sourceName == "Sparkle"
-        }
-        #expect(updates.count == 1)
-        #expect(updates.first?.remote?.sourceName == "Setapp")
-    }
-
-    @Test func readsSetappsPerCustomerAutoInstallFlag() {
-        let suite = "setapp-auto-\(UUID().uuidString)"
-        let defaults = try! #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        // Absent means Setapp's "Install automatically" is on.
-        #expect(!SetappAutomation.isAutoRefreshForbidden(defaults: defaults))
-        #expect(SetappAutomation.canUpdateInBackground(userEnabled: true, defaults: defaults))
-
-        // The prefix is the account's hash, so the key is matched by suffix.
-        defaults.set(1, forKey: "4766321432293575660-ForbiddenAutomaticAppsRefresh")
-        #expect(SetappAutomation.isAutoRefreshForbidden(defaults: defaults))
-        #expect(!SetappAutomation.canUpdateInBackground(userEnabled: true, defaults: defaults))
-        // The user's own switch still wins over Setapp's.
-        #expect(!SetappAutomation.canUpdateInBackground(userEnabled: false, defaults: nil))
-    }
-
-    @Test func aRunningClientTakesThePageRoute() {
-        let suite = "setapp-route-\(UUID().uuidString)"
-        let defaults = try! #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        // Background only when the user allows it, the client is not running and
-        // Setapp would install what its launch check finds.
-        #expect(SetappAutomation.routesThroughBackground(
-            userEnabled: true, clientRunning: false, defaults: defaults))
-        #expect(!SetappAutomation.routesThroughBackground(
-            userEnabled: true, clientRunning: true, defaults: defaults))
-        #expect(!SetappAutomation.routesThroughBackground(
-            userEnabled: false, clientRunning: false, defaults: defaults))
-
-        defaults.set(1, forKey: "4766321432293575660-ForbiddenAutomaticAppsRefresh")
-        #expect(!SetappAutomation.routesThroughBackground(
-            userEnabled: true, clientRunning: false, defaults: defaults))
+        let extractDir = downloaded.workDir.appendingPathComponent("extracted", isDirectory: true)
+        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
+        let extracted = try await ArchiveExtractor.extractApp(from: downloaded.archiveURL, workDir: extractDir)
+        #expect(extracted.lastPathComponent == "Thing.app")
     }
 
     // MARK: - Subscription

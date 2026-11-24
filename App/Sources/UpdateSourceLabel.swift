@@ -120,8 +120,9 @@ struct UpdateSourceLabel: Equatable {
             sidebarName = "App Store"
         case "Setapp":
             phrase = via("Setapp")
-            origin = String(localized: "Updates come from Setapp, which installs them and may also update your other Setapp apps.")
-            sidebarName = "Setapp"
+            origin = String(localized: "Updates come from Setapp’s catalogue.")
+            installs = replaces
+            sidebarName = nil
         case "TestFlight":
             phrase = via("TestFlight")
             origin = String(localized: "TestFlight installs this app’s betas.")

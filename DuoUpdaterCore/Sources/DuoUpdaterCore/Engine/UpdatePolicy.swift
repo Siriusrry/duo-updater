@@ -249,7 +249,7 @@ public enum UpdatePolicy {
         case "Homebrew":
             return result.remote?.sourceIdentifier != nil
                 && result.remote?.requiresManualInstaller == false
-        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName:
+        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName, "Setapp":
             // A vendor-website or GitHub-release app with a resolved installer
             // archive (zip/dmg/tar.gz), or an electron-builder manifest resolved
             // the same way — `VendorInstaller.download()` already vets all three
@@ -485,7 +485,7 @@ public enum UpdatePolicy {
             // A declared manual path is prepared by Brew, then handed to the
             // person. Normal PKGs use Brew directly, including its AskPass.
             return result.remote?.homebrewManualInstaller != nil
-        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName:
+        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName, "Setapp":
             // electron-builder can publish a `.pkg` alongside (or instead of) the
             // Squirrel `.zip` — `ElectronManifestSource.kind(of:)` recognises it —
             // so this needs the same route as Vendor/GitHub: system installer, not
@@ -520,7 +520,7 @@ public enum UpdatePolicy {
         switch result.remote?.sourceName {
         case "Sparkle":
             return !sparkleKeyOnlyEligible(result)
-        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName:
+        case "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName, "Setapp":
             return result.remote?.installTrust == .developerID
         case "Homebrew":
             return result.remote?.requiresManualInstaller == true
@@ -580,7 +580,7 @@ public enum UpdatePolicy {
     public static func isRecognizedInstallSource(_ sourceName: String?) -> Bool {
         switch sourceName {
         case "Sparkle", "Homebrew", "Vendor", "GitHub", "Electron", MyGoUpdateSource.sourceName,
-             "App Store", "Xcode Releases":
+             "Setapp", "App Store", "Xcode Releases":
             return true
         default:
             return false
@@ -657,7 +657,9 @@ public enum UpdatePolicy {
         default:
             // Homebrew (auto_updates casks are excluded upstream), App Store and
             // Toolbox all hand the install to something that manages the app
-            // itself, so there is no bundle of ours to defer.
+            // itself, so there is no bundle of ours to defer. Setapp builds ship
+            // without Sparkle or a built-in updater, and Setapp's own agent skips
+            // running apps rather than updating them.
             return false
         }
     }
@@ -1105,7 +1107,7 @@ public enum UpdatePolicy {
     /// them.
     private static func routeCollidesWithSelfUpdater(_ result: UpdateResult) -> Bool {
         switch result.remote?.sourceName {
-        case "Vendor", "GitHub", "Sparkle", "Electron", MyGoUpdateSource.sourceName: return true
+        case "Vendor", "GitHub", "Sparkle", "Electron", MyGoUpdateSource.sourceName, "Setapp": return true
         // Electron belongs on the protected side, not the excluded one: an
         // electron-builder app's own self-updater (electron-updater / Squirrel
         // .Mac, see `defersToSelfUpdater`) parks its staged build the same way

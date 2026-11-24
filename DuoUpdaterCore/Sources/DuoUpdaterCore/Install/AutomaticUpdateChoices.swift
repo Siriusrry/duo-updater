@@ -8,13 +8,14 @@ public struct AutomaticUpdateChoices: Equatable, Sendable {
         case whenClosed, alsoWhenRunning, never
     }
     /// Setup is a saved preference, not permission to install the current offer.
-    /// Sparkle's release-window hold may intentionally carry no download at all.
-    /// Keep that copy configurable; execution still uses the full install policy.
+    /// Sparkle's release-window hold and Setapp's subscription hold intentionally
+    /// carry no download at all. Keep that copy configurable; execution still uses
+    /// the full install policy.
     public static func canConfigure(remote: RemoteVersion?, installable: Bool?, awaitingRelaunch: Bool = false) -> Bool {
         if installable != false || awaitingRelaunch { return true }
-        return remote?.sourceName == "Sparkle"
-            && remote?.subscriptionHold?.recovery == .releaseWindow
-            && remote?.downloadURL == nil
+        guard remote?.downloadURL == nil else { return false }
+        return (remote?.sourceName == "Sparkle" && remote?.subscriptionHold?.recovery == .releaseWindow)
+            || (remote?.sourceName == "Setapp" && remote?.subscriptionHold?.recovery == .setappAccount)
     }
 
     public static let runningKey = "AutomaticUpdateRelaunchKeys"

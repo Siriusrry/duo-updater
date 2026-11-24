@@ -87,10 +87,8 @@ gracePeriodExpirationDate    <date>
 - 订阅结束后 Setapp 不再下发更新，app 也会停止打开（Setapp 的取消条款）。这时候
   「有新版」仍然是真的，但装不了——只显示版本、不给更新动作（Surge / TablePlus 同一模型）。
 
-## 更新归 Setapp，不归我们
+## 安装与更新：目录 `archive_url` 原地替换
 
-- 没有「安装接口」可调；安装是 agent 本地流程：取 `archive_url` 的 zip → 解包 → 替换，
-  中间有授权检查、确认框、取消 token。
 - 深链实测（2026-11-03，agent 日志）：
 
   | 链接 | 结果 |
@@ -112,10 +110,27 @@ gracePeriodExpirationDate    <date>
   installation. Returns when it is finished.」——它也没有进度，取消在 Setapp 那边。
   这套东西被 GrowthBook 开关 `PLATECO-12287` 挡着（生产为 `false`、无灰度规则），
   当前不可用。
-- 因此 DuoUpdater 对 Setapp 副本只做两件事：报 Setapp 渠道的版本（有效时），
-  给一个打开页面/启动的入口。**不做一键更新**，也不假装有进度或取消。
+- 内部 CLI `SetappDiscoveryCLI -installApps`（2026-11-25 逆向核对 `SetappAgent` 的
+  `-[AFXAppWorkflowManager dispatched_installAndLaunch:withCallback:]`）：要求
+  `workflow.state == 0`（未安装），对磁盘已有副本直接返回 `_AFXDefaultErrorDomain` `-401004`。
+- 直接使用公开目录的官方归档（2026-11-25，Setapp 4.0.1 / 166 实测）：
+  - 稳定目录（`/store/api/v8/en`，504 个应用、1125 条版本）与 Beta 目录
+    （`/store/api/v8/beta/en`，504 个应用、1126 条版本）中**全部版本条目**均提供无鉴权
+    HTTPS `.zip` 的 `archive_url` 与字节数 `size`（缺失数为 0）。
+  - 观测样本 AlDente Pro 1.40.3（`14,487,684` 字节）：`ditto -x -k` 解包后位于顶层
+    `<App>.app` 或一层目录 `setappRelease/<App>.app`（`ArchiveExtractor` 向下一层递归可取），
+    `codesign --verify --deep --strict` 通过，签名 `Identifier=com.apphousekitchen.aldente-pro-setapp`、
+    `TeamIdentifier=3WVC84GB99` 与现有副本一致。
+  - `ExtendedAttributes.framework`（`AFXSetappBundleID`）使用外层 `.app` 的
+    `com.setapp.appInstalledBySetapp`（值 `installedBySetapp`）标记无 `-setapp` 后缀的
+    Setapp 副本，而下载 zip 本身不含该扩展属性；`InPlaceSwap.replace` 在替换时保留目标包的该属性。
+  - 仅在 `SetappSubscription` 判定订阅有效时，`SetappCatalogSource` 下发 `downloadURL`、
+    `downloadSize` 与 `vendorInstallerKind = .zip`，由 `VendorInstaller` + `InPlaceSwap` 原地替换，
+    并接入单行 `Update`、`Update All`、`Automatic Updates` 及运行中副本的退出重开（`AppRestarter` /
+    `AutomaticInstall`）；订阅失效时保持 `SubscriptionHold`（`recovery: .setappAccount`）与
+    `setapp://` 续订回退。
 
-## 后台触发与自动更新开关
+## 历史：后台拉起客户端方案及其淘汰原因
 
 - 静默拉起能触发检查：Setapp 退出、把一个被管理的 app 改成低于目录版本，然后
   `open -g -a /Applications/Setapp.app`（不抢焦点）——15 秒内该 app 被替换。
@@ -150,10 +165,10 @@ Setapp 自己的「Install automatically」，开启才后台启动，让 Setapp
   `setappDiscovery://updates`、`setappDiscovery://check-for-updates` 均有客户端接收日志，
   但没有观察到新的更新检查；后一条调用后 `LastAppsRefreshDate` 仍是上次冷启动的时间。
   这些候选不能当成可用的更新入口，也不能据此断言所有可能的 Updates 深链都不存在。
-- 产品代码已接入 refresh：完成检查后，存在未忽略、状态为 `updateAvailable` 的 Setapp
-  offer，且 DuoUpdater 和 Setapp 两个开关都允许时，后台启动尚未运行的客户端。
+- 当时产品代码曾接入 refresh（后于 2026-11-25 移除）：完成检查后，存在未忽略、状态为
+  `updateAvailable` 的 Setapp offer，且 DuoUpdater 和 Setapp 两个开关都允许时，后台启动尚未运行的客户端。
   稳定版和 Beta 均使用源已完成的渠道、订阅和系统兼容性判断；不会因锁定版本或检查错误启动。
-  popover 按钮固定显示 `Setapp`。客户端已经运行时，如何主动触发检查仍待验证，故跳过。
+  popover 按钮当时显示 `Setapp`。客户端已经运行时，如何主动触发检查仍待验证，故跳过。
 - 使用与产品相同的 `NSWorkspace.openApplication` 参数在 VM 复验：
   `activates=false` 时，`frontBefore=com.apple.Terminal`、`active=false`、
   `frontAfter=com.apple.Terminal`。**不要设置 `hides=true`**：同一探针反而得到
@@ -181,7 +196,7 @@ Setapp 自己的「Install automatically」，开启才后台启动，让 Setapp
 
 结论：**后台启动可自动更新，也不抢焦点，但会显示主窗口，不能称作“完全静默”**。
 此前前台应用保持不变的探针只证明焦点，不能作为“没有显示窗口”的证据。
-当前自动 refresh 实现也有这个限制；尚未验证出无窗口、无闪现的启动方式。
+当时的自动 refresh 实现也有这个限制；未验证出无窗口、无闪现的客户端启动方式。
 
 ### TestFlight 的独立隐藏实例参数复验（2026-11-04）
 
@@ -241,8 +256,8 @@ loginwindow，与录屏上的 Terminal 菜单栏不一致，因此本轮焦点�
 **结论：本次没有验证出“无窗口且能自动更新”的启动方式。延迟隐藏可更新但有闪窗；
 普通后台启动可更新但窗口会留在后方。这是当前 Setapp 版本在这些入口下的实测行为，
 不能归因成某个 UI 框架必然不支持，也不能断言不存在其他可用机制。**
-产品仍采用已有的普通后台启动路径，遇到用户已经运行 Setapp 时跳过；
-未加入独立实例、延迟隐藏或退出用户现有进程的行为。
+当时仍保留普通后台启动路径，遇到用户已经运行 Setapp 时跳过；
+未加入独立实例、延迟隐藏或退出用户现有进程的行为（后统一改为目录 `archive_url` 原地替换）。
 
 ### 检测更新忙碌状态：活动会话，而非数据库时间（2026-11-04）
 
@@ -294,12 +309,14 @@ Paste 的实际版本；第二个探针还只读 Setapp 偏好中包含 `ActiveR
 `/tmp/setapp-progress-download.log`、`/tmp/setapp-progress-sessions.log`；
 探针源文件 `/tmp/setapp-progress-probe.swift`、`/tmp/setapp-progress-sessions-probe.swift`。
 
-### 自动 refresh 生命周期（2026-11-04）
+### 自动 refresh 生命周期实验与淘汰原因（2026-11-04 至 2026-11-25）
 
-`SetappBackgroundUpdates` 已接入检查结束的自动触发路径，手动点击行按钮仍属于用户操作。
-DuoUpdater 开关默认开启，但关闭任一侧自动更新开关、不存在可用 offer、已忽略、订阅 hold、
-客户端已运行，均不自动启动；启动前再次读取应用包版本，避免旧结果触发多余启动。
-Beta/stable 检测继续读取 Setapp 的 beta 开关所选目录。
+早期版本曾通过 `SetappBackgroundUpdates` 在检查结束后冷启动 `Setapp.app` 并在会话空闲后请求退出，该方案已由目录 `archive_url` 原地替换取代并移除：
+
+- 2026-11-25 在 Setapp 4.0.1 (166) 实测运行中的应用（AlDente Pro 1.40.2 → 1.40.3、CleanShot X 5.0.3 → 5.0.4）：`SetappAgent` 的 `AFXAppsUpdater` 输出 `shouldForceTerminateAfterDownload=0`、`will not be updated since it is running`（`updateStatus=2`），不会更新任何正在运行的副本，只能留在客户端内等待手动点击 Reopen。
+- 同时 `openApplication` 始终会弹出可见的 Setapp 主窗口，客户端已运行或用户在 Setapp 内关闭自动安装时也不会触发更新。改为直接校验并替换目录中的官方归档后，不再后台启动或退出 `Setapp.app`。
+
+以下保留 2026-11-04 对客户端生命周期的实验观测：
 
 - 普通不激活启动，不传 `hides`、不创建第二实例、不跳转未验证的 Updates 深链。
 - 启动前注册会话和工作区监听；绑定返回的 `NSRunningApplication`、PID、启动日期和路径。
@@ -378,6 +395,6 @@ log show --last 2m --info --predicate 'process == "SetappAgent" AND eventMessage
 open -a Setapp && log show --last 5m --predicate 'process == "SetappAgent" AND eventMessage CONTAINS "update conditions"'
 ```
 
-代码侧：`SetappCatalog`（目录解析/缓存）、`SetappSubscription`（账号状态）、
-`SetappCatalogSource`（`SourceStack` 里排在 Sparkle 之前）。验证问句：
-「一个 `-setapp` 副本不再落到 `SparkleAppcastSource`」，以及「订阅无效时版本被 hold 而不是被 offer」。
+代码侧：`SetappCatalog`（目录解析/缓存，含 `archive_url` 与 `size`）、`SetappSubscription`（账号状态）、
+`SetappCatalogSource`（`SourceStack` 里排在 Sparkle 之前，有效订阅下走 `VendorInstaller` + `InPlaceSwap` 原地更新）。验证问句：
+「一个 `-setapp` 副本不再落到 `SparkleAppcastSource`」、「有效订阅下通过目录 `archive_url` 一键/自动更新并保留 `com.setapp.appInstalledBySetapp`」，以及「订阅无效时版本被 hold 而不是被 offer」。

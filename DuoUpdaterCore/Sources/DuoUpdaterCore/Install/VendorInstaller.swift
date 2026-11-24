@@ -138,17 +138,18 @@ public actor VendorInstaller {
     ) async throws -> DownloadedUpdate {
         // Accept any source whose RemoteVersion carries a resolved installer
         // archive we vet ourselves: the vendor-probe registry ("Vendor") and
-        // GitHub release rules with an asset pattern ("GitHub"), and
-        // electron-builder manifests ("Electron"), and MyGo manifests ("MyGo"). All
-        // download a build we gate on a Team-ID match below — or, for an ad-hoc
-        // signed app, on the route its `installTrust` names — so the swap stays
-        // same-channel — adding a source name here widens what may flow through
-        // the gates, never which gates run. Sparkle/Homebrew install through their
-        // own pipelines.
+        // GitHub release rules with an asset pattern ("GitHub"),
+        // electron-builder manifests ("Electron"), MyGo manifests ("MyGo"), and
+        // Setapp catalogue archives ("Setapp"). All download a build we gate on a
+        // Team-ID match below — or, for an ad-hoc signed app, on the route its
+        // `installTrust` names — so the swap stays same-channel — adding a source
+        // name here widens what may flow through the gates, never which gates run.
+        // Sparkle/Homebrew install through their own pipelines.
         guard let remote = result.remote,
               remote.sourceName == "Vendor" || remote.sourceName == "GitHub"
                 || remote.sourceName == "Electron"
-                || remote.sourceName == MyGoUpdateSource.sourceName else {
+                || remote.sourceName == MyGoUpdateSource.sourceName
+                || remote.sourceName == "Setapp" else {
             throw InstallError.notVendorUpdate
         }
         guard let downloadURL = remote.downloadURL else {

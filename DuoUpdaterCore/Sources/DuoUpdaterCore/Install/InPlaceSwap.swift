@@ -421,6 +421,9 @@ public enum InPlaceSwap {
     ) async throws -> SwapOutcome {
         try validateTarget(target)
         await stripQuarantine(newApp)
+        await offCooperativePool(qos: .userInitiated) {
+            preserveSetappMarker(from: target, onto: newApp)
+        }
         // The single moment the user's disk actually changes. Logged at `.notice`
         // on both sides, because "the app was never replaced" — the state behind
         // an update that reports done and changes nothing — was previously
@@ -1197,6 +1200,30 @@ public enum InPlaceSwap {
             Log.install.error("\(line, privacy: .public)")
         }
         return result
+    }
+
+    static let setappInstalledXattr = "com.setapp.appInstalledBySetapp"
+
+    /// Carry Setapp's install marker (`com.setapp.appInstalledBySetapp`) from
+    /// `target` onto `newApp` when `target` has one. Setapp's archive carries
+    /// none — its agent stamps the outer `.app` on install (`ExtendedAttributes`),
+    /// and a bundle without the `-setapp` suffix relies on that attribute for
+    /// Setapp itself to keep recognising the copy after an in-place swap.
+    static func preserveSetappMarker(from target: URL, onto newApp: URL) {
+        let size = getxattr(target.path, setappInstalledXattr, nil, 0, 0, XATTR_NOFOLLOW)
+        guard size >= 0, size <= 4096 else { return }
+        if size == 0 {
+            _ = setxattr(newApp.path, setappInstalledXattr, "", 0, 0, XATTR_NOFOLLOW)
+            return
+        }
+        var value = [UInt8](repeating: 0, count: size)
+        let read = value.withUnsafeMutableBytes { buf in
+            getxattr(target.path, setappInstalledXattr, buf.baseAddress, size, 0, XATTR_NOFOLLOW)
+        }
+        guard read == size else { return }
+        _ = value.withUnsafeBytes { buf in
+            setxattr(newApp.path, setappInstalledXattr, buf.baseAddress, size, 0, XATTR_NOFOLLOW)
+        }
     }
 
     /// The log line for a strip that did not finish, or nil for one that did. Split

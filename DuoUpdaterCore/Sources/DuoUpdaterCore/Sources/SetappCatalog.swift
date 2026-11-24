@@ -17,14 +17,16 @@ import Foundation
 /// reads at `https://store.setapp.com/store/api/v8/en`. Measured 2026-11-03: a
 /// PUBLIC endpoint, no `Authorization` header, JSON:API, ~3 MB, and every app
 /// carries its `versions` relationship with `marketing_version`, `build_number`,
-/// `release_date`, `min_os_version` and `public_id` (the uuid the client's
-/// `setapp://install?app_id=…` deep link takes; the numeric `ZIDENTIFIER` in the
-/// client's CoreData store is NOT that id).
+/// `release_date`, `min_os_version`, `archive_url`, `size` and `public_id` (the
+/// uuid the client's `setapp://install?app_id=…` deep link takes; the numeric
+/// `ZIDENTIFIER` in the client's CoreData store is NOT that id).
 public struct SetappVersion: Sendable, Equatable {
     public let shortVersion: String?
     public let build: String?
     public let releaseDate: Date?
     public let minimumSystemVersion: String?
+    public let archiveURL: URL?
+    public let size: Int64?
     /// The catalogue's `beta` flag. Only the beta channel carries one (measured
     /// 2026-11-04: 15 of 1076 versions on `/store/api/v8/beta/en`, none on
     /// `/store/api/v8/en`).
@@ -32,12 +34,15 @@ public struct SetappVersion: Sendable, Equatable {
 
     public init(
         shortVersion: String?, build: String?, releaseDate: Date?,
-        minimumSystemVersion: String?, isBeta: Bool = false
+        minimumSystemVersion: String?, archiveURL: URL? = nil, size: Int64? = nil,
+        isBeta: Bool = false
     ) {
         self.shortVersion = shortVersion
         self.build = build
         self.releaseDate = releaseDate
         self.minimumSystemVersion = minimumSystemVersion
+        self.archiveURL = archiveURL
+        self.size = size
         self.isBeta = isBeta
     }
 }
@@ -339,11 +344,17 @@ public enum SetappCatalog {
         let rows: [SetappVersion] = versions.compactMap { row in
             guard let attributes = row["attributes"] as? [String: Any] else { return nil }
             let epoch = (attributes["release_date"] as? NSNumber)?.doubleValue
+            let archiveURL = (attributes["archive_url"] as? String)
+                .flatMap(URL.init(string:))
+                .flatMap { (try? SecureScheme.requireSecureDownload($0)) != nil ? $0 : nil }
+            let rawSize = (attributes["size"] as? NSNumber)?.int64Value
             return SetappVersion(
                 shortVersion: attributes["marketing_version"] as? String,
                 build: attributes["build_number"] as? String,
                 releaseDate: epoch.map { Date(timeIntervalSince1970: $0) },
                 minimumSystemVersion: attributes["min_os_version"] as? String,
+                archiveURL: archiveURL,
+                size: rawSize.flatMap { $0 > 0 ? $0 : nil },
                 isBeta: Self.flag(attributes["beta"]))
         }
         let ordered = rows.sorted { lhs, rhs in

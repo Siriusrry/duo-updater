@@ -2283,7 +2283,7 @@ private struct AppRow: View {
             }
         }
         // Not for an app automatic updates never install (Homebrew, the App
-        // Store, Setapp…): a choice there would change nothing.
+        // Store, Toolbox…): a choice there would change nothing.
         if model.installsAutomatically(result) != false {
             AutomaticUpdateModeMenu(prefs: model.prefs, app: result.app)
         }

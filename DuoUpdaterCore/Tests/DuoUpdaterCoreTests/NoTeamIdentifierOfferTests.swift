@@ -89,7 +89,7 @@ import Testing
 
     /// GitHub, vendor and Electron downloads on `.developerID` run gate 3 too.
     @Test func aDeveloperIDDownloadOverACopyWithoutATeamIDIsNotOffered() {
-        for source in ["GitHub", "Vendor", "Electron"] {
+        for source in ["GitHub", "Vendor", "Electron", "Setapp"] {
             #expect(Self.offered(Self.result(source: source, kind: .zip, lacksTeam: false)), "\(source)")
             #expect(!Self.offered(Self.result(source: source, kind: .zip, lacksTeam: true)), "\(source)")
             #expect(!Self.installer(Self.result(
